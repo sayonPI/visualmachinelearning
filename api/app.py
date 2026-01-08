@@ -3,14 +3,50 @@ import pickle
 import tensorflow as tf
 from tensorflow import keras
 import numpy as np
+import logging
+from pathlib import Path
 import pandas as pd
-from tensorflow.keras.preprocessing.sequence import pad_sequences
-from sklearn.preprocessing import LabelEncoder
+from tensorflow.keras.utils import pad_sequences
+
+
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 app = Flask(__name__)
+MODEL_DIR = Path(__file__).resolve().parent.parent / 'models'
 
-#Load the pickled model when the app starts
-model = None
+#Module-level cached artifacts (load at startup)
+model = None 
+le_location = None
+location_to_idx = None 
+max_length = None
+
+def init_artifacts():
+    global model, le_location, location_to_idx, max_length
+
+    #Loading model once with compile set to False; saving memory and startup time
+    try:
+        model = keras.models.load_model(MODEL_DIR / 'location_order_lstm_model.h5')
+        with open(MODEL_DIR / 'location_encoder.pkl', 'rb') as f:
+            le_location = pickle.load(f)
+        with open(MODEL_DIR / 'model_artifacts.pkl', 'rb') as f:
+            artifacts = pickle.load(f)
+            location_to_idx = artifacts['location_to_idx']
+            max_length = artifacts['max_length']
+        logger.info("Artifacts loaded successfully.")
+    except Exception as e:
+        logger.error(f"Error loading artifacts: {e}")
+
+#Load encoder pickle once 
+enc_path = MODEL_DIR / 'location_encoder.pkl'
+try: 
+    with open(enc_path, 'rb') as f:
+        le_location = pickle.load(f)
+    logger.info("Location encoder loaded successfully.")
+except FileNotFoundError:
+    logger.error(f"Location encoder file not found at {enc_path}")
+    raise
+
 
 def load_model():
     global model
@@ -21,7 +57,6 @@ def load_model():
         print("Model file not found. Please ensure 'model.pkl' exists.")
     except Exception as e:
         print(f"Error loading model: {e}")
-    
 load_model()
 
 @app.route('/')
@@ -177,7 +212,8 @@ def predict_next_locations_with_artifacts(model, artifacts, input_sequence, top_
 
 def load_trained_model():
     """Load the saved model and artifacts"""
-    # Load model
+
+     # Load model
     loaded_model = keras.models.load_model('../models/lstm_location_model.keras')
     
     # Load artifacts
